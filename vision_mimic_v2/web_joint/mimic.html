@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JAKA π · 视觉模仿 V2</title>
+  <style>
+    :root {
+      --bg: #0e141b; --panel: #172029; --line: #2c3a48; --text: #e8eef4;
+      --muted: #8b9aab; --accent: #3ecf8e; --warn: #e6b450; --blue: #2f6fed; --bad: #f07178;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", "Microsoft YaHei", sans-serif; overflow: hidden; }
+    #app { display: grid; grid-template-columns: 1fr 1fr 300px; height: 100%; }
+    .pane { position: relative; min-width: 0; border-right: 1px solid var(--line); }
+    .pane h2 {
+      position: absolute; left: 12px; top: 10px; z-index: 2; margin: 0;
+      font-size: 13px; font-weight: 600; color: var(--accent);
+      background: rgba(15,22,30,.85); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+    }
+    #camWrap, #view { width: 100%; height: 100%; min-height: 0; }
+    #camCanvas, #c {
+      width: 100%; height: 100%; display: block; background: #090d12;
+      touch-action: none;
+    }
+    #c { position: relative; z-index: 1; }
+    .pane h2 { pointer-events: none; }
+    video { display: none; }
+    aside {
+      border-right: none; background: var(--panel);
+      display: flex; flex-direction: column; padding: 12px 14px; gap: 10px; overflow: auto;
+    }
+    aside h1 { margin: 0; font-size: 15px; }
+    aside p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    button {
+      border: 1px solid var(--line); background: #243140; color: var(--text);
+      border-radius: 8px; padding: 9px 12px; cursor: pointer; font: inherit; font-size: 12px;
+    }
+    button.primary { background: var(--blue); border-color: var(--blue); }
+    button.on { background: var(--accent); border-color: var(--accent); color: #0a1210; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    #status, #sync, #qinfo {
+      font-size: 12px; line-height: 1.4; color: var(--muted);
+      padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #13202c;
+    }
+    #status.ok { color: var(--accent); }
+    #status.err { color: var(--bad); }
+    .hint { font-size: 11px; color: var(--warn); line-height: 1.4; }
+    a { color: var(--blue); }
+    @media (max-width: 1100px) {
+      #app { grid-template-columns: 1fr; grid-template-rows: 36vh 36vh 1fr; }
+      .pane { border-right: none; border-bottom: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="pane">
+      <h2>摄像头 · 人体骨架</h2>
+      <div id="camWrap"><canvas id="camCanvas"></canvas></div>
+      <video id="video" playsinline muted></video>
+    </div>
+    <div class="pane" id="view">
+      <h2>派仔 · robot_q 模仿</h2>
+      <canvas id="c"></canvas>
+    </div>
+    <aside>
+      <h1>视觉 → 派仔 → MuJoCo · V2</h1>
+      <p id="policyInfo">上身动作跟随 · 下半身由站立平衡策略控制。</p>
+      <div class="row">
+        <button class="primary" id="btnCam">开摄像头</button>
+        <button id="btnMimic" disabled>开始模仿</button>
+        <button id="btnStop" disabled>停止</button>
+      </div>
+      <div class="row">
+        <button id="modeUpper" class="on">仅上半身</button>
+        <button id="modeFull">全身跟随（锁腰）</button>
+      </div>
+      <div class="row">
+        <button id="btnFit">复位正面全身视角</button>
+        <button id="btnSim">打开 / 找回 MuJoCo 窗口</button>
+        <button id="btnUnpin">取消 MuJoCo 置顶</button>
+      </div>
+      <p class="hint">右窗：拖拽旋转 · 滚轮缩放 · 右键平移。若贴脸进模型，点「复位全身视角」。</p>
+      <p class="hint">MuJoCo 独立窗口在主屏右侧置顶；可取消置顶。找回窗口不需要开摄像头。</p>
+      <div id="status">请用新子文件夹里的 START_V2.cmd 启动（8766 + 8788）。</div>
+      <div id="sync">仿真：检测中…</div>
+      <div id="physics" style="font-size:12px;line-height:1.6">平衡状态：等待仿真</div>
+      <div id="qinfo">robot_q：—</div>
+      <div id="metrics" style="font-size:12px;line-height:1.6">帧率 / 延迟：等待开始</div>
+      <details><summary style="font-size:12px;cursor:pointer">查看全部 27 个关节</summary><table id="jointTable" style="width:100%;font-size:10px;border-collapse:collapse"></table></details>
+      <label style="font-size:12px">输入精度 <select id="resolution"><option value="640">640 · 快速</option><option value="720" selected>720 · 均衡</option><option value="960">960 · 精细</option></select></label>
+      <label style="font-size:12px"><input type="checkbox" id="mirror" checked> 镜像显示（不改变机器人左右）</label>
+      <label style="font-size:12px"><input type="checkbox" id="pairedDepth" checked> 正面对称动作辅助</label>
+      <div><button id="recordStart">开始数值记录</button><button id="recordStop">停止并下载</button></div>
+      <button id="recordAnalyze">打开记录分析与回放</button>
+      <div id="recordStatus" style="font-size:12px">记录只保存关键点与关节数值，不保存图像</div>
+      <p class="hint">双臂画面方向接近时，辅助减少单目深度造成的左右偏差。若两臂前后动作不同却在画面中重合，请关闭此项。</p>
+      <p class="hint">腰部目标固定正前方，腕关节保留初始值。上身动作先限速，再由平衡策略跟随；腿部会自动调整支撑。</p>
+      <p class="hint">关节拖拽页：<a href="/">index.html</a> · 本页不改拖拽逻辑。</p>
+      <p class="hint">站立平衡启用时，摄像头不控制腿部。右侧网页模型展示模仿目标，实际平衡动作以 MuJoCo 独立窗口为准。</p>
+    </aside>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/vendor/three/three.module.js",
+      "three/addons/": "/vendor/three/addons/"
+    }
+  }
+  </script>
+  <script type="module">
+  import * as THREE from "three";
+  import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+  import { STLLoader } from "three/addons/loaders/STLLoader.js";
+  import URDFLoader from "/vendor/URDFLoader.module.js";
+
+  const NAMES = [
+    "Left_hip_pitch_joint","Left_hip_roll_joint","Left_hip_yaw_joint","Left_knee_joint","Left_ankle_pitch_joint","Left_ankle_roll_joint",
+    "Left_shoulder_pitch_joint","Left_shoulder_roll_joint","Left_shoulder_yaw_joint","Left_elbow_joint","Left_wrist_roll_joint","Left_wrist_yaw_joint",
+    "Right_hip_pitch_joint","Right_hip_roll_joint","Right_hip_yaw_joint","Right_knee_joint","Right_ankle_pitch_joint","Right_ankle_roll_joint",
+    "Right_shoulder_pitch_joint","Right_shoulder_roll_joint","Right_shoulder_yaw_joint","Right_elbow_joint","Right_wrist_roll_joint","Right_wrist_yaw_joint",
+    "waist_yaw_joint","Neck_yaw_joint","Neck_pitch_joint"
+  ];
+  let DOWN = [-1.9198,-0.5236,-2.0071,-0.349,-0.5236,-0.349,-1.5707,-1.9189,-1.5707,-0.8726,-1.5707,0,-1.9198,-0.5236,-2.0071,-0.349,-0.5236,-0.349,-1.5707,-1.9189,-1.5707,-0.8726,-1.5707,0,-2.0071,-1.5707,-0.6108];
+  let UP   = [1.2217,2.3562,3.5779,2.2689,0.6108,0.349,1.5707,1.9189,1.5707,2.2689,1.5707,1.5707,1.2217,2.3562,3.5779,2.2689,0.6108,0.349,1.5707,1.9189,1.5707,2.2689,1.5707,1.5707,3.5779,1.5707,0.6108];
+  const INIT = [0,0,0,0,0,0, 0,-1.57,0,1.57,0,0.3, 0,0,0,0,0,0, 0,-1.57,0,1.57,0,0.3, 0,0,0];
+  const q = INIT.slice();
+  const jointTable = document.getElementById("jointTable");
+  NAMES.forEach((name,i) => {
+    const row = jointTable.insertRow();
+    row.insertCell().textContent = `${i+1} ${name.replace("_joint","")}`;
+    row.insertCell().id = `joint-${i}`;
+  });
+  const clip = (i, v) => Math.max(DOWN[i], Math.min(UP[i], Number(v) || 0));
+
+  const statusEl = document.getElementById("status");
+  const syncEl = document.getElementById("sync");
+  const qinfoEl = document.getElementById("qinfo");
+  const setStatus = (t, cls="") => { statusEl.textContent = t; statusEl.className = cls; };
+
+  const video = document.getElementById("video");
+  const camCanvas = document.getElementById("camCanvas");
+  const camCtx = camCanvas.getContext("2d");
+  let stream = null, mimicking = false, inFlight = false, loopToken = 0;
+  let session = 0, frameAbort = null, lastCompleted = 0;
+  const encodeCanvas = document.createElement("canvas");
+  const encodeCtx = encodeCanvas.getContext("2d");
+  let lastSkeletonAt = 0;
+  let lastPersons = [], connections = [];
+  let controlMode = "upper";
+
+  function paintMode(mode) {
+    controlMode = mode === "full" ? "full" : "upper";
+    document.getElementById("modeUpper").classList.toggle("on", controlMode === "upper");
+    document.getElementById("modeFull").classList.toggle("on", controlMode === "full");
+  }
+  async function setMode(mode) {
+    paintMode(mode);
+    try {
+      const r = await fetch("/api/mode", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ control_mode: mode }),
+      });
+      const s = await r.json();
+      if (!r.ok || !s.ok) throw new Error(s.error || "模式切换失败");
+      if (s.balance?.level && s.balance.level !== "ok") syncEl.textContent += " · ⚠ " + s.balance.message;
+      if (s.control_mode) paintMode(s.control_mode);
+    } catch (e) { paintMode("upper"); setStatus(e.message,"err"); }
+  }
+  document.getElementById("modeUpper").onclick = () => setMode("upper");
+  document.getElementById("modeFull").onclick = () => setMode("full");
+
+  fetch("/api/limits").then(r => r.json()).then((lim) => {
+    if (lim?.down?.length === 27) { DOWN = lim.down.map(Number); UP = lim.up.map(Number); }
+  }).catch(() => {});
+
+  async function pollSync() {
+    try {
+      const s = await (await fetch("/api/status")).json();
+      const official = s.balance_policy === "official_stand";
+      const fullButton = document.getElementById("modeFull");
+      fullButton.disabled = s.full_body_allowed === false;
+      fullButton.textContent = official ? "腿部由平衡策略控制" : "全身跟随（锁腰）";
+      document.getElementById("policyInfo").textContent = official
+        ? "官方站立平衡已启用 · 上身动作作为目标，腿部自动支撑。"
+        : "旧版行走策略 · 网页覆盖上身目标。";
+      document.getElementById("physics").textContent = s.mujoco === "running"
+        ? `机身位移 ${((s.base_displacement_m || 0)*100).toFixed(1)} cm · 累计失稳复位 ${s.fall_count || 0} 次`
+        : "平衡状态：仿真未运行";
+      const modeTxt = (s.control_mode === "full" ? "全身" : "上半身") + (s.waist_locked ? " · 腰固定正前方" : "");
+      syncEl.textContent = s.mujoco === "running"
+        ? `仿真：已连接 · ${modeTxt} · ${s.window?.interactive_desktop === false ? "窗口在隔离桌面，请从桌面重启 V2" : s.viewer === "hidden" ? "窗口被隐藏 / 最小化，请点找回窗口" : s.viewer === "headless" ? "无窗口测试" : s.window?.presented ? "主屏窗口已置顶" : "窗口已打开，可点找回置顶"}`
+        : `仿真：${s.mujoco || "?"} · ${s.detail || ""}`;
+      if (s.balance?.level && s.balance.level !== "ok") syncEl.textContent += " · ⚠ " + s.balance.message;
+      if (s.control_mode) paintMode(s.control_mode);
+    } catch (_) {
+      syncEl.textContent = "仿真：无法连接";
+    }
+  }
+  setInterval(pollSync, 1500);
+  pollSync();
+  document.getElementById("btnSim").onclick = async () => {
+    const button = document.getElementById("btnSim");
+    button.disabled = true;
+    try {
+      const response = await fetch("/api/simulation/start", {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "打开失败");
+      syncEl.textContent = "正在打开 / 恢复 MuJoCo 独立窗口，可用 Alt+Tab 切换";
+    } catch(e) { syncEl.textContent = "MuJoCo：" + e.message; }
+    finally { button.disabled = false; }
+  };
+
+  // —— Three / URDF ——
+  document.getElementById("btnUnpin").onclick = async () => {
+    try {
+      const r = await fetch("/api/simulation/window", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topmost:false})});
+      if (!r.ok) throw new Error("取消置顶失败");
+      setStatus("已取消 MuJoCo 置顶；找回窗口会再次置顶", "ok");
+    } catch(e) { setStatus(e.message,"err"); }
+  };
+  const canvas = document.getElementById("c");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 200);
+  camera.position.set(2.2, 1.4, 2.6);
+  const controls = new OrbitControls(camera, canvas);
+  controls.target.set(0, 0.75, 0);
+  controls.enableDamping = true;
+  controls.enableZoom = true;
+  controls.enablePan = true;
+  controls.minDistance = 0.35;
+  controls.maxDistance = 20;
+  controls.zoomSpeed = 1.1;
+  scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a2430, 1.1));
+  const key = new THREE.DirectionalLight(0xffffff, 1.25);
+  key.position.set(2.5, 4, 2); scene.add(key);
+  scene.add(new THREE.GridHelper(4, 20, 0x3a5166, 0x243444));
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe5eaef, metalness: 0.35, roughness: 0.48 });
+  let robot = null;
+
+  function applyPose() {
+    if (!robot) return;
+    for (let i = 0; i < 27; i++) {
+      q[i] = clip(i, q[i]);
+      const j = robot.joints && robot.joints[NAMES[i]];
+      if (!j) continue;
+      try {
+        if (j.limit) { j.limit.lower = DOWN[i]; j.limit.upper = UP[i]; }
+        robot.setJointValue(NAMES[i], q[i]);
+      } catch (_) {}
+    }
+  }
+
+  /** 与 index.html 同一套取景；并防止仍钻进关节内部。 */
+  function fitCamera() {
+    resize();
+    // Khan_mini 站立默认机位（米制）——即使 bbox 异常也能看见全身
+    let target = new THREE.Vector3(0, 0.75, 0);
+    let pos = new THREE.Vector3(2.6, 0.9, 0);
+    if (robot) {
+      robot.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(robot);
+      if (!box.isEmpty()) {
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        // 与关节页完全相同的公式（已验证可用）
+        target.copy(center);
+        const distance = Math.max(size.y, size.z / Math.max(camera.aspect, 0.1)) / (2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))) * 1.2;
+        pos.set(center.x + Math.max(2.0,distance), center.y, center.z);
+        // 若仍落在包围球内，再沿视线推远
+        const sphere = new THREE.Sphere();
+        box.getBoundingSphere(sphere);
+        const need = Math.max(2.0, sphere.radius * 2.6);
+        const dir = pos.clone().sub(target);
+        if (dir.lengthSq() < 1e-6) dir.set(1, 0.35, 1);
+        dir.normalize();
+        if (pos.distanceTo(target) < need) pos.copy(target).addScaledVector(dir, need);
+      }
+    }
+    controls.target.copy(target);
+    camera.position.copy(pos);
+    camera.near = 0.05;
+    camera.far = 200;
+    camera.up.set(0, 1, 0);
+    camera.lookAt(target);
+    camera.updateProjectionMatrix();
+    controls.minDistance = 0.4;
+    controls.maxDistance = 40;
+    controls.update();
+  }
+
+  function pushRobotQ(rq) {
+    for (let i = 0; i < 27; i++) q[i] = clip(i, rq[i]);
+    applyPose();
+    const L = q[7], E = q[9];
+    qinfoEl.textContent = `robot_q · 腰=${(q[24]*180/Math.PI).toFixed(1)}° · Lroll=${L.toFixed(2)} Lelb=${E.toFixed(2)} · Rroll=${q[19].toFixed(2)} Relb=${q[21].toFixed(2)}`;
+    // The proxy has submitted this pose as the upper-body reference. The
+    // standing controller may track it slowly while coordinating leg support.
+  }
+
+  {
+    const manager = new THREE.LoadingManager();
+    manager.onLoad = () => {
+      applyPose();
+      fitCamera();
+      // STL 异步齐套后再框两次，避免偶发贴脸
+      setTimeout(fitCamera, 100);
+      setTimeout(fitCamera, 500);
+      setStatus("派仔模型已加载 · 滚轮缩放 / 点复位视角", "ok");
+    };
+    const urdfLoader = new URDFLoader(manager);
+    urdfLoader.packages = "";
+    urdfLoader.workingPath = "/";
+    urdfLoader.loadMeshCb = (path, mgr, done) => {
+      let url = path;
+      if (!url.startsWith("http") && !url.startsWith("/")) url = "/" + url.replace(/^\.\//, "");
+      url = url.replace(/\/\.\.\//g, "/").replace(/\/+/g, "/");
+      if (url.includes("meshes/") && !url.startsWith("/meshes/")) {
+        url = "/meshes/" + url.split("meshes/").pop();
+      }
+      new STLLoader(mgr).load(url, (geom) => {
+        geom.computeVertexNormals();
+        done(new THREE.Mesh(geom, bodyMat.clone()));
+      }, undefined, (err) => {
+        console.warn("STL fail", url, err);
+        done(null, err);
+      });
+    };
+    setStatus("正在加载派仔 URDF + STL…");
+    urdfLoader.load("/robot.urdf?" + Date.now(), (result) => {
+      robot = result;
+      robot.rotation.x = -Math.PI / 2;
+      robot.updateMatrixWorld(true);
+      scene.add(robot);
+      applyPose();
+      fitCamera();
+    }, undefined, () => setStatus("URDF 加载失败", "err"));
+  }
+
+  document.getElementById("btnFit").onclick = () => {
+    fitCamera();
+    setStatus("已复位全身视角", "ok");
+  };
+  // 滚轮被页面抢走时，仍能缩放
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+  }, { passive: false });
+
+  function resize() {
+    const parent = canvas.parentElement;
+    const r = parent.getBoundingClientRect();
+    const w = Math.max(2, Math.floor(r.width));
+    const h = Math.max(2, Math.floor(r.height));
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    const cr = camCanvas.parentElement.getBoundingClientRect();
+    camCanvas.width = Math.max(2, Math.floor(cr.width * devicePixelRatio));
+    camCanvas.height = Math.max(2, Math.floor(cr.height * devicePixelRatio));
+  }
+  window.addEventListener("resize", () => { resize(); });
+  // 布局稳定后再量一次，避免初始宽高为 0
+  requestAnimationFrame(() => { resize(); fitCamera(); });
+  setTimeout(() => { resize(); fitCamera(); }, 300);
+  (function tick3() {
+    requestAnimationFrame(tick3);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  // —— Camera + skeleton ——
+  function drawCam() {
+    const w = camCanvas.width, h = camCanvas.height;
+    camCtx.fillStyle = "#090d12";
+    camCtx.fillRect(0, 0, w, h);
+    if (video.readyState >= 2) {
+      const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+      const s = Math.min(w / vw, h / vh);
+      const dw = vw * s, dh = vh * s;
+      const ox = (w - dw) / 2, oy = (h - dh) / 2;
+      const mirror = document.getElementById("mirror").checked;
+      camCtx.save();
+      if (mirror) { camCtx.translate(w,0); camCtx.scale(-1,1); }
+      camCtx.drawImage(video, ox, oy, dw, dh);
+      const p = performance.now()-lastSkeletonAt < 500 ? lastPersons[0] : null;
+      if (p) {
+        const kps = p.keypoints || [];
+        const sx = (x) => ox + (x / (p._w || vw)) * dw;
+        const sy = (y) => oy + (y / (p._h || vh)) * dh;
+        camCtx.strokeStyle = "#3ecf8e";
+        camCtx.lineWidth = 2 * devicePixelRatio;
+        for (const c of connections) {
+          const a = kps[c.a], b = kps[c.b];
+          if (!a || !b || (a.visibility || 0) < 0.25 || (b.visibility || 0) < 0.25) continue;
+          camCtx.beginPath();
+          camCtx.moveTo(sx(a.x), sy(a.y));
+          camCtx.lineTo(sx(b.x), sy(b.y));
+          camCtx.stroke();
+        }
+        camCtx.fillStyle = "#e6b450";
+        for (const k of kps) {
+          if ((k.visibility || 0) < 0.25) continue;
+          camCtx.beginPath();
+          camCtx.arc(sx(k.x), sy(k.y), 3.5 * devicePixelRatio, 0, Math.PI * 2);
+          camCtx.fill();
+        }
+      }
+    }
+    if (video.readyState >= 2) camCtx.restore();
+    requestAnimationFrame(drawCam);
+  }
+  drawCam();
+
+  async function grabJpeg() {
+    const maxSide = Number(document.getElementById("resolution").value);
+    const scale = Math.min(1, maxSide/Math.max(video.videoWidth,video.videoHeight));
+    const tw = Math.max(2,Math.round(video.videoWidth*scale));
+    const th = Math.max(2,Math.round(video.videoHeight*scale));
+    if (encodeCanvas.width !== tw || encodeCanvas.height !== th) {
+      encodeCanvas.width = tw; encodeCanvas.height = th;
+    }
+    encodeCtx.drawImage(video,0,0,tw,th);
+    return new Promise((resolve,reject) => encodeCanvas.toBlob(b => b ? resolve(b) : reject(new Error("JPEG编码失败")), "image/jpeg", .65));
+  }
+
+  async function poseTick(token) {
+    if (token !== loopToken || !mimicking || !stream) return;
+    if (video.readyState < 2 || inFlight) {
+      setTimeout(() => poseTick(token), 40);
+      return;
+    }
+    inFlight = true;
+    const t0 = performance.now();
+    try {
+      const image = await grabJpeg();
+      if (token !== loopToken) return;
+      const encodedAt = performance.now();
+      frameAbort = new AbortController();
+      const timeout = setTimeout(() => frameAbort?.abort(), 13000);
+      let data;
+      try {
+        const response = await fetch("/api/vision", {
+          method: "POST", headers: {"Content-Type":"image/jpeg", "X-Mimic-Session":String(session), "X-Paired-Depth":document.getElementById("pairedDepth").checked ? "1" : "0"},
+          body: image, signal: frameAbort.signal,
+        });
+        data = await response.json();
+      } finally { clearTimeout(timeout); frameAbort = null; }
+      const completed = performance.now();
+      const hz = lastCompleted ? 1000/(completed-lastCompleted) : 0;
+      lastCompleted = completed;
+      document.getElementById("metrics").textContent = `更新 ${hz.toFixed(1)} Hz · 本帧 ${(completed-t0).toFixed(0)} ms · 编码 ${(encodedAt-t0).toFixed(0)} ms · 识别 ${data.timing_ms?.total ?? "—"} ms`;
+      if (token !== loopToken) return;
+      if (!data.ok && data.error) {
+        setStatus(data.error + (data.hint ? " · " + data.hint : ""), "err");
+      } else {
+        lastPersons = data.persons || [];
+        lastSkeletonAt = performance.now();
+        connections = data.connections || connections;
+        const p0 = lastPersons[0];
+        if (p0) {
+          p0._w = data.width; p0._h = data.height;
+          const rq = p0.robot_q;
+          if (Array.isArray(rq) && rq.length === 27 && rq.every(Number.isFinite)) {
+            pushRobotQ(rq);
+            rq.forEach((value,i) => {
+              const cell = document.getElementById(`joint-${i}`);
+              cell.textContent = `${(value*180/Math.PI).toFixed(1)}°`;
+              cell.style.color = p0.robot_valid?.[i] ? "var(--accent)" : "var(--muted)";
+              cell.title = p0.robot_valid?.[i] ? "本帧有效估计" : "缺测保持 / 固定关节";
+            });
+            setStatus(`模仿中 · robot_q · ${lastPersons.length}人 · ${(data.timing_ms && data.timing_ms.total) || "?"}ms`, "ok");
+          } else {
+            setStatus("有人但无 robot_q（请更新 face_yolov8_web）", "err");
+          }
+        } else {
+          setStatus("未检测到人", "");
+        }
+      }
+    } catch (e) {
+      if (token === loopToken) setStatus(String(e.message || e), "err");
+    } finally {
+      inFlight = false;
+      const wait = Math.max(0, 33 - (performance.now() - t0));
+      setTimeout(() => poseTick(token), wait);
+    }
+  }
+
+  let lastRecordingId=null;
+  async function recordingAction(action){
+    try{
+      const response=await fetch('/api/recording/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'记录失败');
+      lastRecordingId=result.id;
+      document.getElementById('recordStatus').textContent=result.error||`${result.active?'记录中':'记录完成'} · ${result.events} 条 · ${result.id||''}`;
+      if(action==='stop'&&result.id){const a=document.createElement('a');a.href='/api/recording/file?id='+encodeURIComponent(result.id);a.download=result.id;a.click();}
+    }catch(error){document.getElementById('recordStatus').textContent=error.message;}
+  }
+  document.getElementById('recordStart').onclick=()=>recordingAction('start');
+  document.getElementById('recordStop').onclick=()=>recordingAction('stop');
+  document.getElementById('recordAnalyze').onclick=async()=>{
+    try{const state=await(await fetch('/api/recording/status')).json();if(state.active)throw new Error('请先停止记录');
+      const id=lastRecordingId||state.files?.[0]?.id;if(!id)throw new Error('还没有记录');
+      const response=await fetch('/api/recording/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});
+      const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'分析失败');
+      const a=document.createElement('a');a.href=result.url;a.target='_blank';a.rel='noopener';a.click();
+    }catch(error){document.getElementById('recordStatus').textContent=error.message;}
+  };
+  setInterval(async()=>{try{const s=await(await fetch('/api/recording/status')).json();if(s.active||s.error)document.getElementById('recordStatus').textContent=s.error||`记录中 · ${s.elapsed_s} 秒 · ${s.events} 条`;}catch(_){}},2000);
+  document.getElementById("btnCam").onclick = async () => {
+    try {
+      stream?.getTracks().forEach(t => t.stop());
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      document.getElementById("btnMimic").disabled = false;
+      setStatus("摄像头已开，可开始模仿", "ok");
+      resize();
+    } catch (e) {
+      setStatus("摄像头失败：" + e.message, "err");
+    }
+  };
+
+  document.getElementById("btnMimic").onclick = async () => {
+    document.getElementById("btnMimic").disabled = true;
+    try {
+      const result = await (await fetch("/api/mimic", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:true})})).json();
+      session = result.session;
+    } catch(e) { setStatus("启动失败："+e.message,"err"); document.getElementById("btnMimic").disabled = false; return; }
+    lastCompleted = 0;
+    mimicking = true;
+    loopToken++;
+    document.getElementById("btnMimic").disabled = true;
+    document.getElementById("btnStop").disabled = false;
+    document.getElementById("btnMimic").classList.add("on");
+    poseTick(loopToken);
+  };
+  document.getElementById("btnStop").onclick = async () => {
+    mimicking = false;
+    loopToken++;
+    frameAbort?.abort();
+    lastPersons = [];
+    document.getElementById("btnMimic").disabled = true;
+    document.getElementById("btnStop").disabled = true;
+    document.getElementById("btnMimic").classList.remove("on");
+    setStatus("已停止模仿", "");
+    try {
+      const response = await fetch("/api/mimic", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    } catch(e) { setStatus("停止请求失败："+e.message,"err"); }
+    finally { document.getElementById("btnMimic").disabled = !stream; }
+  };
+  window.addEventListener("pagehide", () => {
+    stream?.getTracks().forEach(t => t.stop());
+    if (mimicking) fetch("/api/mimic", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false}),keepalive:true}).catch(() => {});
+  });
+  </script>
+</body>
+</html>

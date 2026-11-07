@@ -1,0 +1,59 @@
+{
+  "scenario": "combined",
+  "simulation_seconds": 120.0,
+  "results": {
+    "legacy_loco": {
+      "fall_count": 18,
+      "max_displacement_m": 2.6538403359473772,
+      "min_upright": 0.4526430955775206,
+      "min_base_z": 0.3473557221588523,
+      "max_actual_upper_speed_rad_s": 11.25539521858498,
+      "step_errors": 0,
+      "control_steps": 5992,
+      "base_weld_active": false,
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "parallel_ankle_constraints_active": true,
+      "resets_by_reason": {
+        "tilt": 4,
+        "height": 0,
+        "drift": 14,
+        "nonfinite": 0,
+        "state_error": 0
+      },
+      "tracking_rms_rad": 0.06422035024430738,
+      "reference_tracking_rms_rad": 0.06422035024430738,
+      "inference_p95_ms": 0.4051800002343952
+    },
+    "official_stand": {
+      "fall_count": 0,
+      "max_displacement_m": 0.05193324454567467,
+      "min_upright": 0.9996313447661161,
+      "min_base_z": 0.6191097112372951,
+      "max_actual_upper_speed_rad_s": 1.9656357463768026,
+      "step_errors": 0,
+      "control_steps": 6000,
+      "base_weld_active": false,
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "parallel_ankle_constraints_active": true,
+      "resets_by_reason": {
+        "tilt": 0,
+        "height": 0,
+        "drift": 0,
+        "nonfinite": 0,
+        "state_error": 0
+      },
+      "tracking_rms_rad": 0.16153912340746332,
+      "reference_tracking_rms_rad": 0.029227824429003908,
+      "inference_p95_ms": 0.4810300026292681
+    }
+  },
+  "test_method": "Same model, gravity, PD gains, free base and upper references; only controller changes. Resets counted."
+}

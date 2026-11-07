@@ -1,0 +1,35 @@
+# 站岗视觉 · 本地调试配置（无真机）
+
+model:
+  # 首次运行 ultralytics 会自动下载；也可改成本地 .pt 路径
+  weights: yolov8n.pt
+  conf: 0.45
+  iou: 0.5
+  # COCO 中 person 类别 id
+  person_class_id: 0
+  device: cpu   # 有 GPU 可改 cuda:0
+
+source:
+  # webcam | video | image | ros（真机后再开）
+  type: webcam
+  webcam_index: 0
+  video_path: samples/guard_demo.mp4
+  image_path: samples/person.jpg
+  # 真机 Gemini2L 话题占位，联机时再填实际名字
+  ros_rgb_topic: /camera/color/image_raw
+
+azimuth:
+  # |offset_x| 小于该值视为「正对」，不建议转向
+  deadzone: 0.12
+  # 连续多少帧有人才算确认（抑制闪烁）
+  confirm_frames: 3
+  # 连续多少帧无人后清空目标
+  lost_frames: 8
+
+output:
+  # 控制台打印 JSON 事件
+  print_json: true
+  # 可视化窗口（无显示器的 SSH 可改 false）
+  show_window: true
+  # 写到该文件，方便语音组/决策组订阅式读取（后期可改 ROS topic）
+  event_file: runtime/person_event.json

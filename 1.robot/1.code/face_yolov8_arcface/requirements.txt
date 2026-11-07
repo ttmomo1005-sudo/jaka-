@@ -1,0 +1,11 @@
+# YOLOv8-Face (lindevs) + InsightFace ArcFace
+# 比旧版 YuNet+LBPH 识别准得多；默认用 yolov8l，可切 yolov8x
+ultralytics>=8.3.0,<8.4
+opencv-python>=4.8,<5
+numpy>=1.24
+PyYAML>=6.0
+insightface>=0.7.3
+onnxruntime>=1.16.0
+Pillow>=9.0
+tqdm>=4.65
+requests>=2.28

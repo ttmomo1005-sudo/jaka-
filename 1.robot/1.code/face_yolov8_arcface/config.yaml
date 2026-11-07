@@ -1,0 +1,56 @@
+# 网页实时：InsightFace SCRFD + 对齐 ArcFace（不再用 YOLO 认人）
+
+model:
+  backend: insightface
+  insightface_pack: buffalo_l
+  insightface_det_size: 640
+  insightface_det_thresh: 0.40
+  device: auto
+  yolo_size: s
+  yolo_conf: 0.28
+  yolo_iou: 0.5
+  imgsz: 640
+  fast_embed: false
+  recognize_align: true
+
+match:
+  cosine_threshold: 0.45
+  margin: 0.06
+  lock_score: 0.45
+  switch_margin: 0.12
+  min_face_px: 28
+  detect_min_face_px: 28
+  recognize_min_face_px: 32
+  vote_window: 2
+  vote_min: 1
+  max_faces: 2
+
+track:
+  iou_min: 0.12
+  max_missed: 40
+  smooth: 0.70
+  nms_iou: 0.40
+
+performance:
+  process_max_side: 960
+  detect_every: 1
+  recognize_every: 1
+  display_max_side: 960
+  show_fps: true
+
+camera:
+  index: 0
+  width: 1280
+  height: 720
+  buffer_size: 1
+
+enroll:
+  mode: oneshot
+  auto_capture_sec: 1.0
+  min_det_conf: 0.40
+  min_face_px: 80
+  augment: true
+
+paths:
+  cache_dir: ./cache
+  gallery_dir: ./gallery

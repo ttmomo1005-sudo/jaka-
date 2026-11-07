@@ -1,0 +1,43 @@
+{
+  "scenario": "neutral",
+  "simulation_seconds": 20.0,
+  "results": {
+    "legacy_loco": {
+      "fall_count": 0,
+      "max_displacement_m": 0.0036051852331284847,
+      "min_upright": 0.9997216985846576,
+      "min_base_z": 0.6191097112372951,
+      "max_actual_upper_speed_rad_s": 0.8499508831509001,
+      "step_errors": 0,
+      "control_steps": 1000,
+      "base_weld_active": false,
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "parallel_ankle_constraints_active": true,
+      "tracking_rms_rad": 0.016040409816271903,
+      "inference_p95_ms": 0.5342400003428338
+    },
+    "official_stand": {
+      "fall_count": 0,
+      "max_displacement_m": 0.04013408680555877,
+      "min_upright": 0.9997367313320022,
+      "min_base_z": 0.6191097112372951,
+      "max_actual_upper_speed_rad_s": 0.8499508831509001,
+      "step_errors": 0,
+      "control_steps": 1000,
+      "base_weld_active": false,
+      "gravity": [
+        0.0,
+        0.0,
+        -9.81
+      ],
+      "parallel_ankle_constraints_active": true,
+      "tracking_rms_rad": 0.01966912851811655,
+      "inference_p95_ms": 0.6156950003060044
+    }
+  },
+  "test_method": "Same model, gravity, PD gains, free base and upper references; only controller changes. Resets counted."
+}
